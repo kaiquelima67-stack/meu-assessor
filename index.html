@@ -401,15 +401,20 @@ const Store = {
   _local(name, id, row) {
     const arr = (this.cache[name] || []).filter(x => x.id !== id); if (row) arr.push({ id, ...row }); this.cache[name] = arr; this._emit(name);
   },
-  async add(name, data) { const id = uid(); await this._put(name, id, data); this._local(name, id, data); return id; },
-  async set(name, id, data) { await this._put(name, id, data); this._local(name, id, data); },
+  async _opt(name, id, row, fn) {
+    this._local(name, id, row);
+    try { await fn(); } catch (e) { this._load(name); throw e; }
+  },
+  async add(name, data) { const id = uid(); await this._opt(name, id, data, () => this._put(name, id, data)); return id; },
+  async set(name, id, data) { await this._opt(name, id, data, () => this._put(name, id, data)); },
   async patch(name, id, patch) {
     const cur = (this.cache[name] || []).find(x => x.id === id); if (!cur) return;
-    const row = { ...strip(cur), ...patch }; await this._put(name, id, row); this._local(name, id, row);
+    const row = { ...strip(cur), ...patch }; await this._opt(name, id, row, () => this._put(name, id, row));
   },
   async del(name, id) {
-    const { error } = await SB.from('app_docs').delete().eq('coll', name).eq('id', id); if (error) throw error;
     this._local(name, id, null);
+    const { error } = await SB.from('app_docs').delete().eq('coll', name).eq('id', id);
+    if (error) { this._load(name); throw error; }
   },
 };
 
@@ -973,7 +978,11 @@ function openModal(kind, id, preset) {
 }
 function closeModal() { S.modal = null; $('#modal').innerHTML = ''; }
 async function saveModal() {
-  const M = S.modal; if (!M) return;
+  const M = S.modal; if (!M || S.saving) return;
+  S.saving = true; const sb = $('[data-act="modal-save"]'); if (sb) { sb.disabled = true; sb.textContent = 'Salvando…'; }
+  try { await saveModal2(M); } finally { S.saving = false; const b2 = $('[data-act="modal-save"]'); if (b2) { b2.disabled = false; b2.textContent = 'Salvar'; } }
+}
+async function saveModal2(M) {
   const val = id => { const e = $('#' + id); return e ? e.value.trim() : ''; };
   try {
     if (M.kind === 'lanc') {
@@ -1023,10 +1032,12 @@ function parseShopLine(s) {
 async function createInstallments({ desc, cat, amount, n, k, due, src }) {
   const grp = uid(); const ids = [];
   const ym0 = due.slice(0, 7), day0 = Number(due.slice(8, 10)) || 1;
+  const jobs = [];
   for (let i = k; i <= n; i++) {
     const ym = shiftMonth(ym0, i - k); const day = Math.min(day0, daysInMonth(ym));
-    ids.push(await Store.add('contas', { desc, cat, amount, due: ym + '-' + String(day).padStart(2, '0'), paid: false, paidAt: null, inst: { n, k: i }, grp, src: src || 'manual' }));
+    jobs.push(Store.add('contas', { desc, cat, amount, due: ym + '-' + String(day).padStart(2, '0'), paid: false, paidAt: null, inst: { n, k: i }, grp, src: src || 'manual' }));
   }
+  ids.push(...await Promise.all(jobs));
   return ids;
 }
 const DEMO_FLAG = { demo: true };
