@@ -568,8 +568,9 @@ function parseLocal(text) {
   if (isBill) {
     let cat = 'Outras'; for (const [c, r] of BKEYS) if (r.test(t)) { cat = c; break; }
     const dm = t.match(/dia\s*(\d{1,2})/i);
-    let due = today;
-    if (dm) { const day = Math.min(28, Math.max(1, Number(dm[1]))); const ym = today.slice(0, 7); due = ym + '-' + String(day).padStart(2, '0'); if (due < today) due = shiftMonth(ym, 1) + '-' + String(day).padStart(2, '0'); }
+    const cur = today.slice(0, 7), vm = S.month || cur;
+    let due = vm === cur ? today : vm + '-10';
+    if (dm) { const day = Math.min(28, Math.max(1, Number(dm[1]))); due = vm + '-' + String(day).padStart(2, '0'); if (vm === cur && due < today) due = shiftMonth(vm, 1) + '-' + String(day).padStart(2, '0'); }
     return { actions: [{ type: 'bill', desc: cap(desc) || cat, cat, amount: n.val, due, paid: /paguei|pago|quitei/i.test(t) }] };
   }
   let cat = 'Outros'; for (const [c, r] of KEYS) if (r.test(t)) { cat = c; break; }
@@ -700,6 +701,7 @@ async function submitQuick() {
     input.value = '';
     S.busy = false; $('#send').disabled = false;
     status('Anotado: ' + esc(lines.join(' · ')), true);
+    { const a0 = actions[0], d0 = a0 && (a0.due || a0.date); if (d0 && /^\d{4}-\d{2}/.test(d0) && d0.slice(0, 7) !== S.month && a0.type !== 'shopping') { S.month = d0.slice(0, 7); render(); } }
     const tgt = actions[0] && (actions[0].type === 'bill' || actions[0].type === 'pay') ? 'contas' : actions[0] && actions[0].type === 'shopping' ? 'compras' : null;
     if (tgt && S.tab !== tgt && S.tab !== 'visao') { /* mantém a tela atual */ }
   } catch (e) {
