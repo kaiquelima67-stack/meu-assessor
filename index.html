@@ -984,7 +984,7 @@ function openModal(kind, id, preset) {
     it = S.compras.find(x => x.id === id); if (!it) return;
     h = '<h2>Editar item</h2><div class="field"><label for="f-desc">Nome</label><input class="in" id="f-desc" value="' + esc(it.name) + '"></div><div class="grid two"><div class="field"><label for="f-qty">Quantidade</label><input class="in num" id="f-qty" inputmode="numeric" value="' + (it.qty || 1) + '"></div><div class="field"><label for="f-amount">Preço unitário (R$)</label><input class="in num" id="f-amount" inputmode="decimal" value="' + numIn(it.price) + '"></div></div>';
   } else if (kind === 'account') {
-    h = '<h2>Minha conta</h2><div class="small muted">' + esc(S.email || '') + '</div><div class="field"><label for="f-user">Nome de usuário (para entrar sem e-mail)</label><input class="in" id="f-user" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(S.profile.username || '') + '"></div><div class="field"><label for="f-name">Seu nome</label><input class="in" id="f-name" value="' + esc(S.profile.name || '') + '"></div><div class="field"><label for="f-phone">Seu WhatsApp (com DDD)</label><input class="in" id="f-phone" inputmode="tel" placeholder="11999998888" value="' + esc(S.profile.phone || '') + '"></div><div class="small muted">O número é usado para o assistente do WhatsApp reconhecer você.</div><div><button class="btn danger" data-act="logout" type="button">Sair da conta</button></div>';
+    h = '<h2>Minha conta</h2><div class="small muted">' + esc(S.email || '') + '</div><div class="field"><label for="f-user">Nome de usuário (para entrar sem e-mail)</label><input class="in" id="f-user" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(S.profile.username || '') + '"></div><div class="field"><label for="f-name">Seu nome</label><input class="in" id="f-name" value="' + esc(S.profile.name || '') + '"></div><div class="field"><label for="f-phone">Seu WhatsApp (com DDD)</label><input class="in" id="f-phone" inputmode="tel" placeholder="11999998888" value="' + esc(S.profile.phone || '') + '"></div><div class="small muted">O número é usado para o assistente do WhatsApp reconhecer você.</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="logout" type="button">Sair da conta</button><button class="btn danger" data-act="reset-all" type="button">Resetar tudo</button></div><div class="small muted">Resetar tudo apaga todos os gastos, contas, compras, saldo e renda. Não dá para desfazer.</div>';
   } else if (CFGK[kind]) {
     const cur = S.cfg[CFGK[kind][0]];
     h = '<h2>' + CFGK[kind][1] + '</h2><div class="small muted">Mês: ' + cap(monthLabel(S.month)) + '</div><div class="field"><label for="f-amount">Valor (R$)</label><input class="in num" id="f-amount" inputmode="decimal" value="' + numIn(cur || '') + '"></div><div class="small muted">' + CFGK[kind][2] + '</div>';
@@ -1120,7 +1120,15 @@ document.addEventListener('click', async e => {
     case 'copy-prev': await copyPrev(); break;
     case 'demo-load': await loadDemo(); break;
     case 'demo-clear': await clearDemo(); break;
-    case 'account': openModal('account'); break;
+    case 'account': S.resetArm = false; openModal('account'); break;
+    case 'reset-all': {
+      if (!S.resetArm) { S.resetArm = true; el.textContent = 'Tem certeza? Toque de novo para apagar TUDO'; setTimeout(() => { S.resetArm = false; if (el.isConnected) el.textContent = 'Resetar tudo'; }, 6000); break; }
+      S.resetArm = false; el.disabled = true; el.textContent = 'Apagando…';
+      const { error } = await SB.from('app_docs').delete().eq('user_id', Store.uid);
+      if (error) { el.disabled = false; el.textContent = 'Resetar tudo'; status('Não consegui apagar agora. Tente de novo.'); break; }
+      ['lanc', 'contas', 'compras', 'cfg'].forEach(c => { Store.cache[c] = []; Store._emit(c); });
+      closeModal(); status('Tudo foi apagado. Você começa do zero.'); break;
+    }
     case 'logout': closeModal(); await SB.auth.signOut(); break;
     case 'budget-edit': openModal('budget'); break;
     case 'income-edit': openModal('income'); break;
