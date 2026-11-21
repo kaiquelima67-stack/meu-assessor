@@ -377,7 +377,7 @@ const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 const SB = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
 const clean = o => JSON.parse(JSON.stringify(o));
 const Store = {
-  uid: null, cache: {}, listeners: {}, ch: null, timers: {},
+  uid: null, cache: {}, listeners: {}, ch: null, timers: {}, pending: {}, seq: {},
   start(uid) { this.uid = uid; this.cache = {}; this.listeners = {}; if (this.ch) { SB.removeChannel(this.ch); this.ch = null; } },
   sub(name, cb, err) {
     (this.listeners[name] ||= []).push(cb);
@@ -390,10 +390,15 @@ const Store = {
     }
   },
   async _load(name, err) {
+    if (this.pending[name] > 0) return;
+    const my = (this.seq[name] = (this.seq[name] || 0) + 1);
     const { data, error } = await SB.from('app_docs').select('id,data').eq('coll', name).limit(5000);
     if (error) { if (err) err(error); return; }
+    if (my !== this.seq[name] || this.pending[name] > 0) return;
     this.cache[name] = (data || []).map(r => ({ id: r.id, ...r.data })); this._emit(name);
   },
+  _begin(name) { this.pending[name] = (this.pending[name] || 0) + 1; this.seq[name] = (this.seq[name] || 0) + 1; },
+  _end(name) { this.pending[name] = Math.max(0, (this.pending[name] || 1) - 1); if (!this.pending[name]) { clearTimeout(this.timers[name]); this.timers[name] = setTimeout(() => this._load(name), 600); } },
   _emit(name) { (this.listeners[name] || []).forEach(cb => cb(this.cache[name] || [])); },
   async _put(name, id, data) {
     const { error } = await SB.from('app_docs').upsert({ id, user_id: this.uid, coll: name, data: clean(data), updated_at: new Date().toISOString() }, { onConflict: 'user_id,coll,id' });
@@ -403,8 +408,9 @@ const Store = {
     const arr = (this.cache[name] || []).filter(x => x.id !== id); if (row) arr.push({ id, ...row }); this.cache[name] = arr; this._emit(name);
   },
   async _opt(name, id, row, fn) {
-    this._local(name, id, row);
-    try { await fn(); } catch (e) { this._load(name); throw e; }
+    this._begin(name); this._local(name, id, row);
+    try { await fn(); } catch (e) { this._end(name); this._load(name); throw e; }
+    this._end(name);
   },
   async add(name, data) { const id = uid(); await this._opt(name, id, data, () => this._put(name, id, data)); return id; },
   async set(name, id, data) { await this._opt(name, id, data, () => this._put(name, id, data)); },
@@ -413,8 +419,9 @@ const Store = {
     const row = { ...strip(cur), ...patch }; await this._opt(name, id, row, () => this._put(name, id, row));
   },
   async del(name, id) {
-    this._local(name, id, null);
+    this._begin(name); this._local(name, id, null);
     const { error } = await SB.from('app_docs').delete().eq('coll', name).eq('id', id);
+    this._end(name);
     if (error) { this._load(name); throw error; }
   },
 };
