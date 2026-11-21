@@ -986,69 +986,120 @@ body.authed #auth { display: none; }
   function makeDictShim() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return null;
-    let rec = null, st = "idle", reason = "stopped", waiters = [], lastErr = "";
+    let rec = null, st = "idle", reason = "stopped", lastErr = "", waiters = [], guard = null;
     const H = { partial: [], final: [], state: [] };
     const setState = (x, r) => {
       st = x;
       H.state.forEach((h) => h(r ? { state: x, reason: r } : { state: x }));
     };
+    const finish = () => {
+      clearTimeout(guard);
+      const w = waiters;
+      waiters = [];
+      w.forEach((f) => f());
+    };
+    const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
     return {
       active: () => st !== "idle",
       err: () => lastErr,
       start() {
-        if (st !== "idle") return Promise.resolve();
-        const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
-        rec = new SR();
-        rec.lang = "pt-BR";
-        rec.interimResults = true;
-        rec.continuous = !ios;
-        rec.maxAlternatives = 1;
+        if (rec) {
+          const old = rec;
+          rec = null;
+          try {
+            old.onend = old.onerror = old.onresult = old.onstart = null;
+            old.abort();
+          } catch (e) {
+          }
+        }
+        clearTimeout(guard);
+        st = "idle";
         reason = "stopped";
         lastErr = "";
-        rec.onstart = () => setState("listening");
-        rec.onresult = (e) => {
+        const r = new SR();
+        rec = r;
+        r.lang = "pt-BR";
+        r.interimResults = true;
+        r.continuous = !ios;
+        r.maxAlternatives = 1;
+        r.onstart = () => {
+          if (rec !== r) return;
+          clearTimeout(guard);
+          setState("listening");
+        };
+        r.onresult = (e) => {
+          if (rec !== r) return;
           let interim = "";
           for (let i = e.resultIndex; i < e.results.length; i++) {
-            const t = e.results[i][0].transcript;
+            const tx = e.results[i][0].transcript;
             if (e.results[i].isFinal) {
               H.partial.forEach((h) => h({ text: "" }));
-              H.final.forEach((h) => h({ text: " " + t.trim() }));
-            } else interim += t;
+              H.final.forEach((h) => h({ text: " " + tx.trim() }));
+            } else interim += tx;
           }
           if (interim) H.partial.forEach((h) => h({ text: interim }));
         };
-        rec.onerror = (e) => {
+        r.onerror = (e) => {
+          if (rec !== r) return;
           lastErr = e.error || "";
           if (e.error === "not-allowed" || e.error === "service-not-allowed") reason = "not_granted";
           else if (e.error === "no-speech" || e.error === "aborted") reason = "stopped";
           else reason = "upstream_error";
         };
-        rec.onend = () => {
+        r.onend = () => {
+          if (rec !== r) return;
+          rec = null;
           setState("idle", reason);
-          const w = waiters;
-          waiters = [];
-          w.forEach((f) => f());
+          finish();
         };
         setState("starting");
+        guard = setTimeout(() => {
+          if (rec === r && st === "starting") {
+            try {
+              r.abort();
+            } catch (e) {
+            }
+            rec = null;
+            lastErr = lastErr || "sem-resposta";
+            setState("idle", "upstream_error");
+            finish();
+          }
+        }, 5e3);
         try {
-          rec.start();
+          r.start();
         } catch (err) {
+          rec = null;
+          clearTimeout(guard);
+          lastErr = "start";
           setState("idle", "upstream_error");
           return Promise.reject({ code: "upstream_error" });
         }
         return Promise.resolve();
       },
       stop() {
-        if (st === "idle") return Promise.resolve();
+        if (!rec || st === "idle") {
+          st = "idle";
+          return Promise.resolve();
+        }
         reason = "stopped";
-        setState("finishing");
         return new Promise((res) => {
           waiters.push(res);
+          const r = rec;
           try {
-            rec.stop();
+            r.stop();
           } catch (e) {
-            res();
           }
+          setTimeout(() => {
+            if (rec === r) {
+              try {
+                r.abort();
+              } catch (e) {
+              }
+              rec = null;
+              setState("idle", "stopped");
+              finish();
+            }
+          }, 1500);
         });
       },
       onPartial: (h) => (H.partial.push(h), () => {
