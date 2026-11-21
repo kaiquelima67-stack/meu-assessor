@@ -802,14 +802,16 @@ async function submitQuick() {
 
 function makeDictShim() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) return null;
-  let rec = null, st = 'idle', reason = 'stopped', waiters = [];
+  let rec = null, st = 'idle', reason = 'stopped', waiters = [], lastErr = '';
   const H = { partial: [], final: [], state: [] };
   const setState = (x, r) => { st = x; H.state.forEach(h => h(r ? { state: x, reason: r } : { state: x })); };
   return {
     active: () => st !== 'idle',
+    err: () => lastErr,
     start() {
       if (st !== 'idle') return Promise.resolve();
-      rec = new SR(); rec.lang = 'pt-BR'; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1; reason = 'stopped';
+      const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      rec = new SR(); rec.lang = 'pt-BR'; rec.interimResults = true; rec.continuous = !ios; rec.maxAlternatives = 1; reason = 'stopped'; lastErr = '';
       rec.onstart = () => setState('listening');
       rec.onresult = e => {
         let interim = '';
@@ -819,7 +821,7 @@ function makeDictShim() {
         }
         if (interim) H.partial.forEach(h => h({ text: interim }));
       };
-      rec.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') reason = 'not_granted'; else if (e.error === 'no-speech' || e.error === 'aborted') reason = 'stopped'; else reason = 'upstream_error'; };
+      rec.onerror = e => { lastErr = e.error || ''; if (e.error === 'not-allowed' || e.error === 'service-not-allowed') reason = 'not_granted'; else if (e.error === 'no-speech' || e.error === 'aborted') reason = 'stopped'; else reason = 'upstream_error'; };
       rec.onend = () => { setState('idle', reason); const w = waiters; waiters = []; w.forEach(f => f()); };
       setState('starting');
       try { rec.start(); } catch (err) { setState('idle', 'upstream_error'); return Promise.reject({ code: 'upstream_error' }); }
@@ -853,10 +855,10 @@ async function setupDictation() {
     if (state === 'idle') {
       clearTimeout(silence);
       if (S.skipAuto) { S.skipAuto = false; return; }
-      if (reason === 'stopped' || reason === 'viewer_stopped') { if ($('#qa').value.trim()) submitQuick(); else status(''); }
-      else if (reason === 'not_granted') status('O microfone está bloqueado para este app. Escreva o gasto.');
+      if (reason === 'stopped' || reason === 'viewer_stopped') { if ($('#qa').value.trim()) submitQuick(); else status(d.err() === 'no-speech' ? 'Não ouvi nada. Toque no microfone e fale de novo.' : ''); }
+      else if (reason === 'not_granted') status('O microfone está bloqueado. No iPhone: Ajustes > Safari > Microfone > Permitir, e ative o Ditado em Ajustes > Geral > Teclado. Ou use o microfone do teclado.');
       else if (reason === 'unavailable') { mic.hidden = true; status(''); }
-      else if (reason) status('Não consegui ouvir. Tente de novo ou escreva.');
+      else if (reason) status('Não consegui ouvir' + (d.err() ? ' (' + esc(d.err()) + ')' : '') + '. Use o microfone do teclado ou escreva.');
     }
   });
   mic.addEventListener('click', () => {
