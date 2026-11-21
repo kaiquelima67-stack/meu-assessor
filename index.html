@@ -1847,7 +1847,7 @@ body.authed #auth { display: none; }
     const k = captureFocus();
     $("#nav").innerHTML = TABS.map(([id, label, ic]) => '<button class="navbtn" data-act="tab" data-v="' + id + '" ' + (S.tab === id ? 'aria-current="page"' : "") + ">" + IC[ic] + label + "</button>").join("");
     {
-      const MT = [["visao", "Principal", "home"], ["dia", "Gastos", "day"], null, ["contas", "Contas", "bill"], ["compras", "Compras", "cart"]];
+      const MT = [["visao", "In\xEDcio", "home"], ["dia", "Dia a dia", "day"], null, ["contas", "Contas", "bill"], ["compras", "Compras", "cart"]];
       $("#tabs").innerHTML = MT.map((t) => t ? '<button data-act="tab" data-v="' + t[0] + '" ' + (S.tab === t[0] ? 'aria-current="page"' : "") + ">" + IC[t[2]] + t[1] + "</button>" : '<button class="fab" data-act="fab" aria-label="Adicionar">' + SVG.plus + "</button>").join("");
     }
     {
