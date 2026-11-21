@@ -905,11 +905,13 @@ body.authed #auth { display: none; }
     const input = $("#qa");
     const text = input.value.trim();
     if (text) status("Entendendo: " + esc(text));
+    if (S.busy && S.busySince && Date.now() - S.busySince > 12e3) S.busy = false;
     if (!text || S.busy) return;
     if (S.tab === "compras" && !/\b(gastei|paguei|vence|venceu|fatura)\b/i.test(text)) {
       const items = parseShopText(text);
       if (items.length) {
         S.busy = true;
+        S.busySince = Date.now();
         $("#send").disabled = true;
         try {
           const undo = [], lines = [];
@@ -932,6 +934,7 @@ body.authed #auth { display: none; }
       }
     }
     S.busy = true;
+    S.busySince = Date.now();
     $("#send").disabled = true;
     status("Interpretando\u2026");
     let res = null;
@@ -1182,6 +1185,10 @@ body.authed #auth { display: none; }
       } catch (e) {
       }
       S.skipAuto = false;
+    }
+    if (!$("#qa").value.trim()) {
+      status("N\xE3o ouvi nada. Toque no microfone e fale de novo.");
+      return;
     }
     await submitQuick();
   }
