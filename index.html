@@ -276,7 +276,8 @@ body.authed #auth { display: none; }
   <form class="authcard" id="authform" autocomplete="on">
     <img class="alogo" src="logo.svg" alt="">
     <div><h1>Meu Economista</h1><p id="authsub">Entre para ver seus gastos, contas e compras.</p></div>
-    <div class="field"><label for="a-email">E-mail</label><input class="in" id="a-email" type="email" autocomplete="email" required></div>
+    <div class="field"><label for="a-email" id="a-emlabel">E-mail ou usuário</label><input class="in" id="a-email" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="username" required></div>
+    <div class="field" id="a-userrow" hidden><label for="a-user">Nome de usuário (para entrar sem e-mail)</label><input class="in" id="a-user" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="20" placeholder="ex.: kaique"></div>
     <div class="field" id="a-pwrow"><label for="a-pass">Senha</label><input class="in" id="a-pass" type="password" autocomplete="current-password" minlength="6" required></div>
     <div class="msg" id="authmsg" hidden></div>
     <button class="btn primary" id="authgo" type="submit">Entrar</button>
@@ -421,13 +422,19 @@ const Store = {
 /* ---------- estado ---------- */
 const S = {
   tab: 'visao', month: todayStr().slice(0, 7),
-  lanc: [], contas: [], compras: [], cfg: { budget: 0, shopLimit: 0, income: null, balance: null },
+  lanc: [], contas: [], compras: [], cfg: { budget: 0, shopLimit: 0, income: null, balance: null, incomeBy: {}, balanceBy: {} },
   loaded: { lanc: false, contas: false, compras: false, cfg: false },
-  profile: { name: '', phone: '' }, email: '', billCat: 'Todas', noSample: false, busy: false, listening: false, lastUndo: null,
+  profile: { name: '', phone: '', username: '' }, email: '', billCat: 'Todas', noSample: false, busy: false, listening: false, lastUndo: null,
   ecoText: '', ecoBusy: false, ecoErr: '', chat: [], chatBusy: false, confirmFinish: false,
 };
 const allLoaded = () => Object.values(S.loaded).every(Boolean);
 
+function cfgVal(map, ym) {
+  let best = null, bk = '';
+  for (const k of Object.keys(map || {})) if (k <= ym && k >= bk && map[k] != null) { bk = k; best = map[k]; }
+  return best;
+}
+function resolveCfg() { S.cfg.income = cfgVal(S.cfg.incomeBy, S.month); S.cfg.balance = cfgVal(S.cfg.balanceBy, S.month); }
 function monthData(m) {
   const lanc = S.lanc.filter(x => (x.date || '').startsWith(m));
   const contas = S.contas.filter(x => (x.due || '').startsWith(m));
@@ -660,6 +667,7 @@ function parseShopText(text) {
 }
 async function submitQuick() {
   const input = $('#qa'); const text = input.value.trim();
+  if (text) status('Entendendo: ' + esc(text));
   if (!text || S.busy) return;
   if (S.tab === 'compras' && !/\b(gastei|paguei|vence|venceu|fatura)\b/i.test(text)) {
     const items = parseShopText(text);
@@ -950,7 +958,7 @@ async function ecoAsk(q) {
 }
 
 /* ---------- modal de edição ---------- */
-const CFGK = { budget: ['budget', 'Orçamento do mês', 'Quanto você quer gastar no máximo. Deixe vazio para remover.'], limit: ['shopLimit', 'Limite da compra', 'Deixe vazio para remover.'], income: ['income', 'Quanto você ganha por mês', 'Some salário e outras entradas fixas. O economista usa isso nas dicas.'], balance: ['balance', 'Quanto você tem hoje', 'O saldo somado das suas contas e dinheiro na mão. Atualize quando quiser.'] };
+const CFGK = { budget: ['budget', 'Orçamento do mês', 'Quanto você quer gastar no máximo. Deixe vazio para remover.'], limit: ['shopLimit', 'Limite da compra', 'Deixe vazio para remover.'], income: ['income', 'Quanto você ganha por mês', 'Vale para este mês e para os próximos, até você mudar de novo. Some salário e extras.'], balance: ['balance', 'Quanto você tem hoje', 'Vale para este mês e para os próximos, até você atualizar. Some contas e dinheiro na mão.'] };
 function catOptions(list, sel) { return list.map(c => '<option ' + (c === sel ? 'selected' : '') + '>' + esc(c) + '</option>').join(''); }
 function openModal(kind, id, preset) {
   S.modal = { kind, id: id || null };
@@ -967,10 +975,10 @@ function openModal(kind, id, preset) {
     it = S.compras.find(x => x.id === id); if (!it) return;
     h = '<h2>Editar item</h2><div class="field"><label for="f-desc">Nome</label><input class="in" id="f-desc" value="' + esc(it.name) + '"></div><div class="grid two"><div class="field"><label for="f-qty">Quantidade</label><input class="in num" id="f-qty" inputmode="numeric" value="' + (it.qty || 1) + '"></div><div class="field"><label for="f-amount">Preço unitário (R$)</label><input class="in num" id="f-amount" inputmode="decimal" value="' + numIn(it.price) + '"></div></div>';
   } else if (kind === 'account') {
-    h = '<h2>Minha conta</h2><div class="small muted">' + esc(S.email || '') + '</div><div class="field"><label for="f-name">Seu nome</label><input class="in" id="f-name" value="' + esc(S.profile.name || '') + '"></div><div class="field"><label for="f-phone">Seu WhatsApp (com DDD)</label><input class="in" id="f-phone" inputmode="tel" placeholder="11999998888" value="' + esc(S.profile.phone || '') + '"></div><div class="small muted">O número é usado para o assistente do WhatsApp reconhecer você.</div><div><button class="btn danger" data-act="logout" type="button">Sair da conta</button></div>';
+    h = '<h2>Minha conta</h2><div class="small muted">' + esc(S.email || '') + '</div><div class="field"><label for="f-user">Nome de usuário (para entrar sem e-mail)</label><input class="in" id="f-user" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(S.profile.username || '') + '"></div><div class="field"><label for="f-name">Seu nome</label><input class="in" id="f-name" value="' + esc(S.profile.name || '') + '"></div><div class="field"><label for="f-phone">Seu WhatsApp (com DDD)</label><input class="in" id="f-phone" inputmode="tel" placeholder="11999998888" value="' + esc(S.profile.phone || '') + '"></div><div class="small muted">O número é usado para o assistente do WhatsApp reconhecer você.</div><div><button class="btn danger" data-act="logout" type="button">Sair da conta</button></div>';
   } else if (CFGK[kind]) {
     const cur = S.cfg[CFGK[kind][0]];
-    h = '<h2>' + CFGK[kind][1] + '</h2><div class="field"><label for="f-amount">Valor (R$)</label><input class="in num" id="f-amount" inputmode="decimal" value="' + numIn(cur || '') + '"></div><div class="small muted">' + CFGK[kind][2] + '</div>';
+    h = '<h2>' + CFGK[kind][1] + '</h2><div class="small muted">Mês: ' + cap(monthLabel(S.month)) + '</div><div class="field"><label for="f-amount">Valor (R$)</label><input class="in num" id="f-amount" inputmode="decimal" value="' + numIn(cur || '') + '"></div><div class="small muted">' + CFGK[kind][2] + '</div>';
   }
   h += '<div class="foot"><div>' + ((id && !CFGK[kind] && kind !== 'account') ? '<button class="btn danger" data-act="modal-del" type="button">Excluir' + (kind === 'conta' && it && it.grp ? ' esta' : '') + '</button>' + (kind === 'conta' && it && it.grp ? ' <button class="btn danger" data-act="modal-del-grp" type="button">Excluir todas</button>' : '') : '') + '</div><div class="actions"><button class="btn" data-act="modal-close" type="button">Cancelar</button><button class="btn primary" data-act="modal-save" type="button">Salvar</button></div></div>';
   $('#modal').innerHTML = '<div class="modalwrap" data-act="modal-bg"><div class="modal" role="dialog" aria-modal="true">' + h + '</div></div>';
@@ -1008,16 +1016,22 @@ async function saveModal2(M) {
       await Store.set('compras', M.id, { ...strip(old), name: val('f-desc') || old.name, qty: Math.max(1, parseInt(val('f-qty'), 10) || 1), price: isNaN(price) ? 0 : Math.max(0, price) });
     } else if (M.kind === 'account') {
       let ph = val('f-phone').replace(/\D/g, ''); if (ph && ph.length <= 11) ph = '55' + ph;
-      const { error } = await SB.from('profiles').upsert({ user_id: Store.uid, name: val('f-name') || null, phone: ph || null }, { onConflict: 'user_id' });
-      if (error) { status(error.code === '23505' ? 'Esse número já está em outra conta.' : 'Não consegui salvar agora. Tente de novo.'); return; }
-      S.profile = { name: val('f-name'), phone: ph };
+      const un = val('f-user'); if (un && !/^[a-zA-Z0-9_.]{3,20}$/.test(un)) { status('Usuário: 3 a 20 letras, números, ponto ou _ (sem espaço).'); return; }
+      const { error } = await SB.from('profiles').upsert({ user_id: Store.uid, name: val('f-name') || null, phone: ph || null, username: un || null }, { onConflict: 'user_id' });
+      if (error) { status(error.code === '23505' ? (String(error.message).includes('username') ? 'Esse usuário já existe. Escolha outro.' : 'Esse número já está em outra conta.') : 'Não consegui salvar agora. Tente de novo.'); return; }
+      S.profile = { name: val('f-name'), phone: ph, username: un };
     } else if (CFGK[M.kind]) {
       const v = parseBRL(val('f-amount')); const key = CFGK[M.kind][0]; await saveCfg({ [key]: isNaN(v) ? (key === 'income' || key === 'balance' ? null : 0) : v });
     }
     closeModal();
   } catch (e) { status('Não consegui salvar agora. Tente de novo.'); }
 }
-async function saveCfg(patch) { S.cfg = { ...S.cfg, ...patch }; await Store.set('cfg', 'main', { budget: S.cfg.budget || 0, shopLimit: S.cfg.shopLimit || 0, income: S.cfg.income == null ? null : S.cfg.income, balance: S.cfg.balance == null ? null : S.cfg.balance }); S.cfg = { ...S.cfg }; render(); }
+async function saveCfg(patch) {
+  const c = { ...S.cfg };
+  for (const k of ['income', 'balance']) if (k in patch) { const mp = { ...(c[k + 'By'] || {}) }; if (patch[k] == null) delete mp[S.month]; else mp[S.month] = patch[k]; c[k + 'By'] = mp; delete patch[k]; }
+  S.cfg = { ...c, ...patch }; resolveCfg(); render();
+  try { await Store.set('cfg', 'main', { budget: S.cfg.budget || 0, shopLimit: S.cfg.shopLimit || 0, incomeBy: S.cfg.incomeBy || {}, balanceBy: S.cfg.balanceBy || {} }); } catch (e) { status('Não consegui salvar agora. Tente de novo.'); }
+}
 
 /* ---------- ações ---------- */
 function parseShopLine(s) {
@@ -1150,6 +1164,7 @@ function render() {
   $('#monthlbl').textContent = cap(monthLabel(S.month));
   $('#monthnav').hidden = S.tab === 'compras';
   if (!allLoaded()) { $('#view').innerHTML = '<div class="skeleton">Carregando seus dados…</div>'; return; }
+  resolveCfg();
   $('#view').innerHTML = ({ visao: vVisao, dia: vDia, contas: vContas, compras: vCompras, eco: vEco })[S.tab]();
   restoreFocus(k);
   const ch = $('#composer').offsetHeight; if (ch) document.documentElement.style.setProperty('--composer-h', ch + 'px');
@@ -1161,6 +1176,7 @@ function showAuth(mode, msg, tone) {
   $('#authgo').textContent = mode === 'signup' ? 'Criar conta' : mode === 'forgot' ? 'Enviar link' : mode === 'reset' ? 'Salvar nova senha' : 'Entrar';
   $('#authswitch').textContent = mode === 'signup' ? 'Já tenho conta' : 'Criar conta';
   $('#authswitch').hidden = mode === 'reset'; $('#authforgot').hidden = mode === 'forgot' || mode === 'reset';
+  $('#a-userrow').hidden = mode !== 'signup'; $('#a-emlabel').textContent = mode === 'signup' ? 'E-mail' : 'E-mail ou usuário';
   $('#a-pwrow').hidden = mode === 'forgot'; $('#a-email').closest('.field').hidden = mode === 'reset';
   $('#a-email').required = mode !== 'reset'; $('#a-pass').required = mode !== 'forgot';
   $('#a-pass').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
@@ -1168,10 +1184,18 @@ function showAuth(mode, msg, tone) {
   const m = $('#authmsg'); m.hidden = !msg; m.textContent = msg || ''; m.className = 'msg ' + (tone || '');
 }
 const A = { mode: 'login', started: false };
+async function resolveEmail(v) {
+  v = (v || '').trim(); if (v.includes('@')) return v;
+  const { data, error } = await SB.rpc('login_email', { u: v });
+  if (error || !data) throw { message: 'username not found' };
+  return data;
+}
 const authErr = e => {
   const m = String((e && e.message) || '').toLowerCase();
+  if (m.includes('username not found')) return 'Não achei esse usuário. Entre com o e-mail.';
   if (m.includes('invalid login')) return 'E-mail ou senha incorretos.';
   if (m.includes('email not confirmed')) return 'Confirme seu e-mail pelo link que enviamos e entre de novo.';
+  if (m.includes('bad username')) return 'Usuário: 3 a 20 letras, números, ponto ou _ (sem espaço).';
   if (m.includes('already registered')) return 'Esse e-mail já tem conta. Use Entrar.';
   if (m.includes('rate limit') || m.includes('security purposes')) return 'Muitas tentativas. Espere um minuto e tente de novo.';
   if (m.includes('password')) return 'A senha precisa ter pelo menos 6 caracteres.';
@@ -1179,8 +1203,10 @@ const authErr = e => {
 };
 function wireAuth() {
   $('#authform').addEventListener('submit', async e => {
-    e.preventDefault(); const email = $('#a-email').value.trim(), pass = $('#a-pass').value; $('#authgo').disabled = true;
+    e.preventDefault(); let email = $('#a-email').value.trim(); const pass = $('#a-pass').value; $('#authgo').disabled = true;
     try {
+      if (A.mode !== 'signup' && A.mode !== 'reset') email = await resolveEmail(email);
+      if (A.mode === 'signup') { const u = $('#a-user').value.trim(); if (u && !/^[a-zA-Z0-9_.]{3,20}$/.test(u)) throw { message: 'bad username' }; try { if (u) localStorage.setItem('eco:pendingUser', u); } catch (e2) { /* sem armazenamento */ } }
       if (A.mode === 'login') { const { error } = await SB.auth.signInWithPassword({ email, password: pass }); if (error) throw error; }
       else if (A.mode === 'signup') {
         const { data, error } = await SB.auth.signUp({ email, password: pass, options: { emailRedirectTo: location.origin + location.pathname } }); if (error) throw error;
@@ -1210,8 +1236,11 @@ async function startApp(session) {
   Store.sub('lanc', a => { S.lanc = a; mark('lanc'); render(); }, () => {});
   Store.sub('contas', a => { S.contas = a; mark('contas'); render(); }, () => {});
   Store.sub('compras', a => { S.compras = a; mark('compras'); render(); }, () => {});
-  Store.sub('cfg', a => { const c = a.find(x => x.id === 'main'); S.cfg = c ? { budget: c.budget || 0, shopLimit: c.shopLimit || 0, income: c.income == null ? null : c.income, balance: c.balance == null ? null : c.balance } : { budget: 0, shopLimit: 0, income: null, balance: null }; mark('cfg'); render(); }, () => {});
-  SB.from('profiles').select('name,phone').eq('user_id', session.user.id).maybeSingle().then(({ data }) => { if (data) S.profile = { name: data.name || '', phone: data.phone || '' }; });
+  Store.sub('cfg', a => { const c = a.find(x => x.id === 'main'); const m0 = todayStr().slice(0, 7); S.cfg = c ? { budget: c.budget || 0, shopLimit: c.shopLimit || 0, income: null, balance: null, incomeBy: c.incomeBy || (c.income != null ? { [m0]: c.income } : {}), balanceBy: c.balanceBy || (c.balance != null ? { [m0]: c.balance } : {}) } : { budget: 0, shopLimit: 0, income: null, balance: null, incomeBy: {}, balanceBy: {} }; mark('cfg'); render(); }, () => {});
+  let pend = null; try { pend = localStorage.getItem('eco:pendingUser'); } catch (e) { /* sem armazenamento */ }
+  const loadProf = () => SB.from('profiles').select('name,phone,username').eq('user_id', session.user.id).maybeSingle().then(({ data }) => { if (data) S.profile = { name: data.name || '', phone: data.phone || '', username: data.username || '' }; });
+  if (pend) SB.from('profiles').upsert({ user_id: session.user.id, username: pend }, { onConflict: 'user_id' }).then(() => { try { localStorage.removeItem('eco:pendingUser'); } catch (e) { /* ok */ } loadProf(); });
+  else loadProf();
 }
 async function boot() {
   $('#send').innerHTML = IC.send;
